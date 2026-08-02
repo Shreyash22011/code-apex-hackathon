@@ -1,0 +1,64 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Dependency and build outputs
+node_modules/
+dist/
+dist-ssr/
+bun.lockb
+*.tsbuildinfo
+package-lock.json
+Backend/package-lock.json
+Backend/3D_diagram/bun.lock
+Backend/3D_diagram/bun.lockb
+
+*.local
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+uploads/
+Backend/backend/uploads/
+*.sqlite
+*.db
+*.sqlite-journal
+
+.env
+.env.*
+!.env.example
+
+.venv/
+Backend/backend/venv_new/
+
+# Python cache and test artifacts
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Misc generated files used by the project
+Backend/SchemaSense_SRS_v2*.pdf
+Backend/*.docx
+Backend/debug_query*.json
+Backend/debug_upload.csv
+Backend/temp_quality.txt
+Backend/srs_text.txt
+Backend/self-hosted-ai-starter-kit/n8n/demo-data/
+Backend/self-hosted-ai-starter-kit/assets/n8n-demo.gif
