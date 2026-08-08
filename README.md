@@ -249,6 +249,9 @@ VITE_API_URL=http://127.0.0.1:8000
 OLLAMA_MODEL=qwen3.5:4b
 # OLLAMA_URL=http://127.0.0.1:11434/api/generate
 # OLLAMA_TIMEOUT_SECONDS=90
+# OLLAMA_KEEP_ALIVE=10m
+# OLLAMA_THINK=false
+# LLM_MAX_RELEVANT_TABLES=6
 # CLERK_ISSUER_URL=https://your-instance.clerk.accounts.dev
 ```
 
@@ -292,7 +295,9 @@ Without Clerk keys, the UI runs in **DEV mode** (auth bypassed) so you can open 
 | `OLLAMA_MODEL` | Optional | Default `qwen3.5:4b` |
 | `OLLAMA_URL` | Optional | Default `http://127.0.0.1:11434/api/generate` |
 | `OLLAMA_TIMEOUT_SECONDS` | Optional | Default `90` |
-| `OLLAMA_KEEP_ALIVE` | Optional | Default `0s` (unload after request) |
+| `OLLAMA_KEEP_ALIVE` | Optional | Default `10m`; keeps the model loaded between questions for faster replies |
+| `OLLAMA_THINK` | Optional | Default `false`; disables Qwen reasoning tokens for fast, deterministic SQL generation |
+| `LLM_MAX_RELEVANT_TABLES` | Optional | Default `6`; limits schema context to the best matching tables |
 | `CLERK_ISSUER_URL` | Optional | If unset, `/me` and auth deps use a **mock local user** |
 
 ---

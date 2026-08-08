@@ -286,10 +286,11 @@ def handle_nl_to_sql(payload: ChatRequest):
                     "reason": "sql_execution_error"
                 }
         
-        # Generate explanation with actual row count for accuracy
-        explain_prompt = llm.prompt_explain_sql(sql, query_text, row_count)
-        explanation = llm.ask_llm(explain_prompt, task="explain").strip()
+        # The grounded result interpretation is the user-facing explanation.
+        # Previously this made an extra, overlapping model call before making the
+        # interpretation call, adding a full generation to every chat request.
         natural_answer = _generate_natural_answer(query_text, sql, columns, results, row_count)
+        explanation = natural_answer
         
         return {
             "sql": sql,

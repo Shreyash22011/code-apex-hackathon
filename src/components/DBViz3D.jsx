@@ -1,5 +1,6 @@
 ﻿import { useMemo, useRef, useEffect } from "react"
 import ForceGraph3D from "react-force-graph-3d"
+import * as THREE from "three"
 import { useVisualizationStore } from "../store/useVisualizationStore"
 
 function getTableColor(tableName) {
@@ -21,7 +22,7 @@ function getQualityColor(score) {
 
 export default function DBViz3D({ miniMode = false }) {
   const fgRef = useRef(null)
-  const { tables, relationships, setSelectedNode, visualMode, queriedTables } = useVisualizationStore()
+  const { tables, relationships, setSelectedNode, selectedNode, visualMode, queriedTables } = useVisualizationStore()
 
   const graphData = useMemo(() => {
     const total = Math.max((tables || []).length, 1)
@@ -95,6 +96,47 @@ export default function DBViz3D({ miniMode = false }) {
     return getTableColor(node.name)
   }
 
+  // Rich node objects restore persistent labels and make selected/query nodes
+  // legible without increasing the force simulation work.
+  const nodeThreeObject = (node) => {
+    const isSelected = String(selectedNode?.id || "") === String(node.id)
+    const isQueried = visualMode === "ai-query" && queriedTables.includes(String(node.id || "").toLowerCase())
+    const color = nodeColor(node)
+    const size = miniMode ? Math.max(node.val * 0.55, 2) : Math.max(node.val * 0.8, 3)
+    const group = new THREE.Group()
+    group.add(new THREE.Mesh(
+      new THREE.SphereGeometry(size, miniMode ? 12 : 20, miniMode ? 12 : 20),
+      new THREE.MeshPhongMaterial({ color, transparent: true, opacity: 0.92, shininess: 95, emissive: new THREE.Color(color), emissiveIntensity: isQueried ? 0.8 : isSelected ? 0.5 : 0.18 })
+    ))
+
+    if (!miniMode && (isSelected || isQueried)) {
+      const ring = new THREE.Mesh(new THREE.RingGeometry(size * 1.25, size * 1.48, 28), new THREE.MeshBasicMaterial({ color, transparent: true, opacity: isQueried ? 0.7 : 0.45, side: THREE.DoubleSide }))
+      ring.rotation.x = Math.PI / 2
+      group.add(ring)
+    }
+
+    if (!miniMode) {
+      const canvas = document.createElement("canvas")
+      canvas.width = 256
+      canvas.height = 48
+      const ctx = canvas.getContext("2d")
+      if (ctx) {
+        ctx.font = "600 20px Inter, sans-serif"
+        ctx.fillStyle = "#f8fafc"
+        ctx.textAlign = "center"
+        const label = String(node.name).replace(/_/g, " ")
+        ctx.fillText(label.length > 22 ? `${label.slice(0, 20)}…` : label, 128, 30)
+        const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(canvas), transparent: true }))
+        sprite.scale.set(size * 4, size * 0.75, 1)
+        sprite.position.y = size + 5
+        group.add(sprite)
+      }
+    }
+    return group
+  }
+
+  const particleCount = miniMode ? 0 : graphData.links.length > 36 ? 1 : 3
+
   return (
     <div className="absolute inset-0">
       <ForceGraph3D
@@ -106,6 +148,8 @@ export default function DBViz3D({ miniMode = false }) {
         enableNavigationControls
         cooldownTicks={miniMode ? 95 : 90}
         nodeColor={nodeColor}
+        nodeThreeObject={nodeThreeObject}
+        nodeThreeObjectExtend={false}
         nodeVal={(n) => {
           const queried = queriedTables.includes(String(n.id || "").toLowerCase())
           let val = queried && visualMode === "ai-query" ? n.val * 2.5 : n.val * 2
@@ -115,7 +159,7 @@ export default function DBViz3D({ miniMode = false }) {
           }
           return val
         }}
-        nodeResolution={miniMode ? 16 : 32}
+        nodeResolution={miniMode ? 12 : 20}
         nodeOpacity={1}
         linkOpacity={0.65}
         nodeLabel={(node) => {
@@ -128,7 +172,7 @@ export default function DBViz3D({ miniMode = false }) {
             : 'rgba(56, 189, 248, 0.75)' // More vibrant light blue for explicit links
         }
         linkWidth={(link) => (link.type === 'implicit' ? (miniMode ? 0.5 : 1.5) : (miniMode ? 1 : 2.5))}
-        linkDirectionalParticles={(link) => (link.type === 'implicit' ? (miniMode ? 0 : 2) : (miniMode ? 2 : 5))}
+        linkDirectionalParticles={(link) => (link.type === 'implicit' ? 0 : particleCount)}
         linkDirectionalParticleWidth={(link) => (link.type === 'implicit' ? 1.5 : (miniMode ? 2 : 3.5))}
         linkDirectionalParticleResolution={miniMode ? 8 : 16}
         linkDirectionalParticleSpeed={(link) => (link.type === 'implicit' ? 0.005 : 0.015)}
