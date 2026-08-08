@@ -11,8 +11,8 @@ const steps = [
   {
     num: "2",
     title: "AI Analyzes Everything",
-    desc: "phi3:mini running locally generates business summaries, column descriptions, quality scores, and detects implicit relationships — zero cloud, zero cost.",
-    badge: "phi3:mini local"
+    desc: "qwen3.5:4b running locally generates business summaries, column descriptions, quality scores, and detects implicit relationships — zero cloud, zero cost.",
+    badge: "qwen3.5:4b local"
   },
   {
     num: "3",

@@ -1,15 +1,19 @@
+import os
 import re
 import json
 import sqlite3
 import pandas as pd
 from typing import Any, Dict, Optional
 import requests
+from dotenv import load_dotenv
 
-OLLAMA_URL = "http://127.0.0.1:11434/api/generate"
-MODEL_NAME = "phi3:mini"
+load_dotenv()
+
+OLLAMA_URL = os.getenv("OLLAMA_URL", "http://127.0.0.1:11434/api/generate")
+MODEL_NAME = os.getenv("OLLAMA_MODEL", "qwen3.5:4b")
 DB_PATH = "database.sqlite"
-REQUEST_TIMEOUT_SECONDS = 45
-OLLAMA_KEEP_ALIVE = "0s"
+REQUEST_TIMEOUT_SECONDS = int(os.getenv("OLLAMA_TIMEOUT_SECONDS", "90"))
+OLLAMA_KEEP_ALIVE = os.getenv("OLLAMA_KEEP_ALIVE", "0s")
 
 TASK_CONFIG = {
     "sql": {
@@ -442,11 +446,13 @@ def extract_sql_clean(raw_text: str) -> str:
     if not text:
         return ""
     
-    # Strip phi-3 control tokens
+    # Strip common chat/control tokens (phi-style + qwen thinking blocks)
     control_tokens = ["<|system|>", "<|user|>", "<|assistant|>", "<|end|>"]
     for token in control_tokens:
         text = text.replace(token, "")
-        
+    text = re.sub(r"<think>[\s\S]*?</think>", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"</?think>", "", text, flags=re.IGNORECASE)
+
     text = text.replace("```sql", "").replace("```", "").strip()
     semicolon_index = text.find(";")
     if semicolon_index != -1:
@@ -467,6 +473,8 @@ def extract_json_object(raw_text: str) -> Optional[Dict[str, Any]]:
     control_tokens = ["<|system|>", "<|user|>", "<|assistant|>", "<|end|>"]
     for token in control_tokens:
         text = text.replace(token, "")
+    text = re.sub(r"<think>[\s\S]*?</think>", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"</?think>", "", text, flags=re.IGNORECASE)
 
     text = text.replace("```json", "").replace("```", "").strip()
 
@@ -496,17 +504,27 @@ def health_check() -> Dict[str, Any]:
         response = requests.get("http://127.0.0.1:11434/api/tags", timeout=20)
         response.raise_for_status()
         models = response.json().get("models", [])
-        has_phi3 = any(model.get("name", "").startswith("phi3:mini") for model in models)
+        model_names = [model.get("name", "") for model in models]
+        configured_available = any(
+            name == MODEL_NAME or name.startswith(MODEL_NAME)
+            for name in model_names
+        )
         return {
             "status": "ok",
             "ollama_reachable": True,
-            "phi3_available": has_phi3,
+            "model": MODEL_NAME,
+            "model_available": configured_available,
+            # Backward-compatible alias for older frontend/clients
+            "phi3_available": configured_available,
             "model_count": len(models),
+            "installed_models": model_names,
         }
     except Exception as exc:
         return {
             "status": "error",
             "ollama_reachable": False,
+            "model": MODEL_NAME,
+            "model_available": False,
             "phi3_available": False,
             "error": str(exc),
         }

@@ -57,7 +57,7 @@ export default function DemoPreview() {
         >
           <div className="flex items-center gap-2 mb-1">
             <Cpu size={14} className="text-cyan-400" />
-            <span className="text-sm font-semibold text-white">phi3:mini · Local</span>
+            <span className="text-sm font-semibold text-white">qwen3.5:4b · Local</span>
           </div>
           <span className="text-xs text-slate-400 pl-5">Zero cloud cost</span>
         </motion.div>
@@ -214,7 +214,7 @@ export default function DemoPreview() {
                 </div>
                 <div className="flex gap-2">
                   <RotateCw size={14} className="text-indigo-400 animate-spin mt-0.5 shrink-0" />
-                  <span className="text-xs text-indigo-300 font-medium leading-tight">Generating context with phi3:mini...</span>
+                  <span className="text-xs text-indigo-300 font-medium leading-tight">Generating context with qwen3.5:4b...</span>
                 </div>
               </div>
             </div>

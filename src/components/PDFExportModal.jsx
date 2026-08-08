@@ -396,7 +396,7 @@ export default function PDFExportModal({ open, onClose, schemaData, qualityData,
             .filter((score) => score !== null && score < 70).length,
           color: [239,68,68]
         },
-        { label: 'Model', value: 'phi3:mini', color: [99,102,241] },
+        { label: 'Model', value: 'qwen3.5:4b', color: [99,102,241] },
       ];
 
       kpis.forEach((kpi, i) => {
@@ -433,7 +433,7 @@ export default function PDFExportModal({ open, onClose, schemaData, qualityData,
 
       doc.setFontSize(8);
       doc.setTextColor(120, 120, 140);
-      doc.text('Powered by phi3:mini via Ollama — 100% local, zero data sent to cloud', MARGIN, 287);
+      doc.text('Powered by qwen3.5:4b via Ollama — 100% local, zero data sent to cloud', MARGIN, 287);
 
       // EXECUTIVE SUMMARY
       addPage();
