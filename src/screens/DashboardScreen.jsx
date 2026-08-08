@@ -209,7 +209,7 @@ export default function DashboardScreen() {
               bg: criticalTables.length ? 'bg-[var(--danger)]/10' : 'bg-[var(--success)]/10',
             },
             {
-              icon: Zap, label: 'AI Ready', value: 'phi3:mini', sub: 'Running locally',
+              icon: Zap, label: 'AI Ready', value: 'qwen3.5:4b', sub: 'Running locally',
               color: 'text-[var(--success)]', bg: 'bg-[var(--success)]/10',
             },
           ].map((kpi, i) => (

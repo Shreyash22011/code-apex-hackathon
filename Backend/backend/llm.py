@@ -1,21 +1,31 @@
+import os
 import re
 import json
 import sqlite3
-import pandas as pd
+import threading
+from pathlib import Path
 from typing import Any, Dict, Optional
 import requests
+from dotenv import load_dotenv
 
-OLLAMA_URL = "http://127.0.0.1:11434/api/generate"
-MODEL_NAME = "phi3:mini"
+load_dotenv()
+
+OLLAMA_URL = os.getenv("OLLAMA_URL", "http://127.0.0.1:11434/api/generate")
+MODEL_NAME = os.getenv("OLLAMA_MODEL", "qwen3.5:4b")
 DB_PATH = "database.sqlite"
-REQUEST_TIMEOUT_SECONDS = 45
-OLLAMA_KEEP_ALIVE = "0s"
+REQUEST_TIMEOUT_SECONDS = int(os.getenv("OLLAMA_TIMEOUT_SECONDS", "90"))
+OLLAMA_KEEP_ALIVE = os.getenv("OLLAMA_KEEP_ALIVE", "10m")
+OLLAMA_THINK = os.getenv("OLLAMA_THINK", "false").strip().lower() in {"1", "true", "yes", "on"}
+
+_SCHEMA_CONTEXT_CACHE: Dict[tuple[str, int, int, str], str] = {}
+_SCHEMA_CONTEXT_CACHE_LOCK = threading.Lock()
+MAX_RELEVANT_TABLES = int(os.getenv("LLM_MAX_RELEVANT_TABLES", "6"))
 
 TASK_CONFIG = {
     "sql": {
         "temperature": 0.05,
         "top_p": 0.9,
-        "num_predict": 220,
+        "num_predict": 120,
     },
     "summary": {
         "temperature": 0.6,
@@ -35,12 +45,12 @@ TASK_CONFIG = {
     "explain": {
         "temperature": 0.45,
         "top_p": 0.95,
-        "num_predict": 260,
+        "num_predict": 140,
     },
     "interpret": {
-        "temperature": 0.45,
+        "temperature": 0.35,
         "top_p": 0.95,
-        "num_predict": 220,
+        "num_predict": 140,
     },
     "anomaly": {
         "temperature": 0.5,
@@ -50,7 +60,7 @@ TASK_CONFIG = {
     "fix_sql": {
         "temperature": 0.05,
         "top_p": 0.9,
-        "num_predict": 220,
+        "num_predict": 120,
     },
     "role_summary": {
         "temperature": 0.7,
@@ -59,56 +69,67 @@ TASK_CONFIG = {
     }
 }
 
-def build_schema_context(conn: sqlite3.Connection, table_names = None) -> str:
+def _quote_identifier(identifier: str) -> str:
+    return '"' + identifier.replace('"', '""') + '"'
+
+
+def _database_cache_marker(conn: sqlite3.Connection) -> tuple[str, int, int]:
+    """Return a marker that changes whenever the SQLite file changes."""
+    db_path = next((row[2] for row in conn.execute("PRAGMA database_list") if row[1] == "main"), DB_PATH)
+    try:
+        stat = Path(db_path).stat()
+        return str(Path(db_path).resolve()), stat.st_mtime_ns, stat.st_size
+    except OSError:
+        return str(db_path), 0, 0
+
+
+def build_schema_context(conn: sqlite3.Connection, table_names=None) -> str:
+    """Build a compact, cached schema snapshot for model prompts."""
     cursor = conn.cursor()
-    
     if table_names is not None:
-        if isinstance(table_names, str):
-            tables = [table_names]
-        else:
-            tables = table_names
+        tables = [table_names] if isinstance(table_names, str) else list(table_names)
     else:
-        cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")
         tables = [r[0] for r in cursor.fetchall()]
-    
+
+    tables = list(dict.fromkeys(tables))
+    cache_key = (*_database_cache_marker(conn), "\x1f".join(tables))
+    with _SCHEMA_CONTEXT_CACHE_LOCK:
+        cached = _SCHEMA_CONTEXT_CACHE.get(cache_key)
+    if cached is not None:
+        return cached
+
     schema_parts = []
-    
     for table in tables:
-        cursor.execute(f"PRAGMA table_info({table})")
+        quoted_table = _quote_identifier(table)
+        cursor.execute(f"PRAGMA table_info({quoted_table})")
         cols = cursor.fetchall()
-        
-        cursor.execute(f"SELECT COUNT(*) FROM {table}")
+        if not cols:
+            continue
+        cursor.execute(f"SELECT COUNT(*) FROM {quoted_table}")
         row_count = cursor.fetchone()[0]
-        
-        df_sample = pd.read_sql(f"SELECT * FROM {table} LIMIT 5", conn)
-        
-        col_descriptions = []
-        for col in cols:
-            col_name = col[1]
-            col_type = col[2]
-            is_pk = "PRIMARY KEY" if col[5] else ""
-            
-            if col_name in df_sample.columns:
-                sample_vals = df_sample[col_name].dropna().tolist()[:3]
-                null_pct = round(df_sample[col_name].isnull().mean() * 100, 1)
-                sample_str = ", ".join([f"'{v}'" if isinstance(v, str) else str(v) for v in sample_vals])
-                col_descriptions.append(
-                    f"  - {col_name} ({col_type}) {is_pk} | samples: [{sample_str}] | null: {null_pct}%"
-                )
-            else:
-                col_descriptions.append(f"  - {col_name} ({col_type}) {is_pk}")
-        
-        schema_parts.append(
-            f"TABLE: {table} ({row_count:,} rows)\n" +
-            "\n".join(col_descriptions)
-        )
-    
-    return "\n\n".join(schema_parts)
+        cursor.execute(f"SELECT * FROM {quoted_table} LIMIT 3")
+        sample_rows = cursor.fetchall()
+
+        descriptions = []
+        for index, col in enumerate(cols):
+            examples = [row[index] for row in sample_rows if row[index] is not None]
+            sample = ", ".join(repr(value)[:80] for value in examples[:3]) or "null"
+            pk_marker = " PK" if col[5] else ""
+            descriptions.append(f"  {col[1]} {col[2] or 'TEXT'}{pk_marker}; examples: {sample}")
+        schema_parts.append(f"TABLE {table} ({row_count:,} rows)\n" + "\n".join(descriptions))
+
+    context = "\n\n".join(schema_parts)
+    with _SCHEMA_CONTEXT_CACHE_LOCK:
+        if len(_SCHEMA_CONTEXT_CACHE) >= 24:
+            _SCHEMA_CONTEXT_CACHE.clear()
+        _SCHEMA_CONTEXT_CACHE[cache_key] = context
+    return context
 
 
 def prompt_nl_to_sql(question: str, schema_context: str) -> str:
     return f"""<|system|>
-You are an expert SQLite SQL engineer. Your only job is to write a single valid SQL query.
+You write one correct SQLite query. Return SQL only; never include reasoning, markdown, or prose.
 
 CRITICAL RULES — read these before writing anything:
 1. Return ONLY the SQL query. No explanation, no markdown, no backticks, no preamble.
@@ -121,31 +142,12 @@ CRITICAL RULES — read these before writing anything:
 8. Use SQLite date syntax (e.g., `strftime('%Y-%m', date_column)`). Do NOT use Postgres `EXTRACT` or SQL Server `DATEPART`.
 9. If the user asks to "sort" or "order" data (e.g. "sort ascendingly by X"), always include an appropriate ORDER BY clause (e.g. ORDER BY X ASC).<|end|>
 <|user|>
-SCHEMA WITH ACTUAL SAMPLE DATA:
+SCHEMA:
 {schema_context}
-
-EXAMPLES OF GOOD SQL FOR SIMILAR TASKS:
-User: "Show me top customers"
-SQL: SELECT customer_id, count(*) as count FROM orders GROUP BY customer_id ORDER BY count DESC LIMIT 5;
-
-User: "How many sales in 2018?"
-SQL: SELECT count(*) FROM sales WHERE strftime('%Y', order_date) = '2018';
-
-User: "Average price of products"
-SQL: SELECT AVG(price) FROM products;
-
-User: "Sort ascendingly by price"
-SQL: SELECT * FROM products ORDER BY price ASC LIMIT 20;
 
 User question: "{question}"
 
-Think step by step before writing SQL:
-- Which table is most relevant?
-- Which column(s) match what the user is asking for?
-- Do the sample values confirm this column contains the right data?
-- If uncertain, return all rows with LIMIT 20 rather than filtering on assumptions.
-
-Write the SQL query now:
+Write the query now:
 <|end|>
 <|assistant|>"""
 
@@ -238,7 +240,9 @@ Rules:
 3. If no rows are returned, clearly explain what that means.
 4. Do not mention SQL syntax, table schemas, or database internals.
 5. Write in plain language for a non-technical stakeholder.
-6. Start with a direct answer to the user's question.<|end|>
+6. Start with a direct answer to the user's question.
+7. State only facts present in the result preview. Do not infer causes, trends, or values that are not shown.
+8. If the result is truncated or is only a preview, say so rather than generalizing.<|end|>
 <|user|>
 User question: "{question}"
 SQL executed: {sql}
@@ -372,46 +376,82 @@ def safe_sql_fallback(conn: sqlite3.Connection) -> str:
 
 
 def get_relevant_tables(conn: sqlite3.Connection, query: str) -> list[str]:
-    """Build a lightweight relevance filter from user question against table/column names."""
+    """Rank relevant tables instead of injecting the full database into every prompt."""
     try:
         cursor = conn.cursor()
         cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")
         tables = [r[0] for r in cursor.fetchall()]
         
-        query_lower = query.lower()
-        relevant = []
+        def identifier_terms(value: str) -> set[str]:
+            # Keep both the complete identifier and its parts: total_amount
+            # should match both "total" and "amount" in a natural-language query.
+            words = re.findall(r"[a-zA-Z][a-zA-Z0-9_]*", value.lower())
+            parts = [part for word in words for part in word.split("_")]
+            return set(words + parts)
+
+        query_terms = identifier_terms(query)
+        query_terms.update(term.rstrip("s") for term in list(query_terms) if len(term) > 3)
+        query_terms -= {"show", "list", "find", "give", "data", "with", "from", "where", "sort", "rows", "table"}
+        scored = []
         for table in tables:
-            if table.lower() in query_lower:
-                relevant.append(table)
-                continue
+            table_terms = identifier_terms(table)
+            table_terms.update(term.rstrip("s") for term in list(table_terms) if len(term) > 3)
+            score = 12 * len(query_terms & table_terms)
             cursor.execute(f"PRAGMA table_info({table})")
             cols = cursor.fetchall()
             for col in cols:
-                if col[1].lower() in query_lower:
-                    relevant.append(table)
-                    break
-        
-        return relevant if relevant else tables
+                column_terms = identifier_terms(col[1])
+                column_terms.update(term.rstrip("s") for term in list(column_terms) if len(term) > 3)
+                score += 3 * len(query_terms & column_terms)
+            if score:
+                scored.append((score, table))
+
+        if scored:
+            return [table for _, table in sorted(scored, key=lambda item: (-item[0], item[1]))[:MAX_RELEVANT_TABLES]]
+        return tables[:MAX_RELEVANT_TABLES]
     except Exception:
         return []
+
+def _ollama_chat_url() -> str:
+    """Use Ollama's native chat endpoint so each model applies its own template."""
+    if OLLAMA_URL.rstrip("/").endswith("/api/generate"):
+        return OLLAMA_URL.rsplit("/", 1)[0] + "/chat"
+    return OLLAMA_URL
+
+
+def _prompt_messages(prompt: str) -> list[Dict[str, str]]:
+    """Convert legacy prompt builders into native system/user chat messages."""
+    match = re.search(
+        r"<\|system\|>\s*(.*?)<\|end\|>\s*<\|user\|>\s*(.*?)<\|end\|>",
+        prompt or "",
+        flags=re.DOTALL,
+    )
+    if match:
+        return [
+            {"role": "system", "content": match.group(1).strip()},
+            {"role": "user", "content": match.group(2).strip()},
+        ]
+    return [{"role": "user", "content": (prompt or "").strip()}]
+
 
 def ask_llm(prompt: str, task: str = "sql") -> str:
     config = TASK_CONFIG.get(task, TASK_CONFIG["sql"])
     payload = {
         "model": MODEL_NAME,
-        "prompt": prompt,
+        "messages": _prompt_messages(prompt),
         "stream": False,
         "keep_alive": OLLAMA_KEEP_ALIVE,
+        "think": OLLAMA_THINK,
         "options": {
             "temperature": config["temperature"],
             "top_p": config.get("top_p", 0.9),
             "num_predict": config["num_predict"],
         },
     }
-    response = requests.post(OLLAMA_URL, json=payload, timeout=REQUEST_TIMEOUT_SECONDS)
+    response = requests.post(_ollama_chat_url(), json=payload, timeout=REQUEST_TIMEOUT_SECONDS)
     response.raise_for_status()
     data = response.json()
-    return data.get("response", "").strip()
+    return (data.get("message", {}) or {}).get("content", data.get("response", "")).strip()
 
 
 def ask_llm_stream(prompt: str, task: str = "sql"):
@@ -419,21 +459,22 @@ def ask_llm_stream(prompt: str, task: str = "sql"):
     config = TASK_CONFIG.get(task, TASK_CONFIG["sql"])
     payload = {
         "model": MODEL_NAME,
-        "prompt": prompt,
+        "messages": _prompt_messages(prompt),
         "stream": True,
         "keep_alive": OLLAMA_KEEP_ALIVE,
+        "think": OLLAMA_THINK,
         "options": {
             "temperature": config["temperature"],
             "top_p": config.get("top_p", 0.9),
             "num_predict": config["num_predict"],
         },
     }
-    response = requests.post(OLLAMA_URL, json=payload, stream=True, timeout=REQUEST_TIMEOUT_SECONDS)
+    response = requests.post(_ollama_chat_url(), json=payload, stream=True, timeout=REQUEST_TIMEOUT_SECONDS)
     response.raise_for_status()
     for line in response.iter_lines():
         if line:
             data = json.loads(line)
-            chunk = data.get("response", "")
+            chunk = (data.get("message", {}) or {}).get("content", data.get("response", ""))
             if chunk:
                 yield chunk
 
@@ -442,11 +483,13 @@ def extract_sql_clean(raw_text: str) -> str:
     if not text:
         return ""
     
-    # Strip phi-3 control tokens
+    # Strip common chat/control tokens (phi-style + qwen thinking blocks)
     control_tokens = ["<|system|>", "<|user|>", "<|assistant|>", "<|end|>"]
     for token in control_tokens:
         text = text.replace(token, "")
-        
+    text = re.sub(r"<think>[\s\S]*?</think>", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"</?think>", "", text, flags=re.IGNORECASE)
+
     text = text.replace("```sql", "").replace("```", "").strip()
     semicolon_index = text.find(";")
     if semicolon_index != -1:
@@ -467,6 +510,8 @@ def extract_json_object(raw_text: str) -> Optional[Dict[str, Any]]:
     control_tokens = ["<|system|>", "<|user|>", "<|assistant|>", "<|end|>"]
     for token in control_tokens:
         text = text.replace(token, "")
+    text = re.sub(r"<think>[\s\S]*?</think>", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"</?think>", "", text, flags=re.IGNORECASE)
 
     text = text.replace("```json", "").replace("```", "").strip()
 
@@ -496,23 +541,30 @@ def health_check() -> Dict[str, Any]:
         response = requests.get("http://127.0.0.1:11434/api/tags", timeout=20)
         response.raise_for_status()
         models = response.json().get("models", [])
-        has_phi3 = any(model.get("name", "").startswith("phi3:mini") for model in models)
+        model_names = [model.get("name", "") for model in models]
+        configured_available = any(
+            name == MODEL_NAME or name.startswith(MODEL_NAME)
+            for name in model_names
+        )
         return {
             "status": "ok",
             "ollama_reachable": True,
-            "phi3_available": has_phi3,
+            "model": MODEL_NAME,
+            "model_available": configured_available,
+            # Backward-compatible alias for older frontend/clients
+            "phi3_available": configured_available,
             "model_count": len(models),
+            "installed_models": model_names,
         }
     except Exception as exc:
         return {
             "status": "error",
             "ollama_reachable": False,
+            "model": MODEL_NAME,
+            "model_available": False,
             "phi3_available": False,
             "error": str(exc),
         }
-
-def _quote_identifier(identifier: str) -> str:
-    return '"' + identifier.replace('"', '""') + '"'
 
 def build_column_context(conn: sqlite3.Connection, table_name: str, column_name: str) -> Optional[dict]:
     cursor = conn.cursor()

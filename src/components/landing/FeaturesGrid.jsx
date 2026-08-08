@@ -27,7 +27,7 @@ const features = [
   {
     icon: MessageSquare,
     title: "Natural Language to SQL",
-    desc: "Ask questions in plain English. phi3:mini generates accurate SQL, executes it, and explains the result — no SQL knowledge required.",
+    desc: "Ask questions in plain English. qwen3.5:4b generates accurate SQL, executes it, and explains the result — no SQL knowledge required.",
     bg: "rgba(239,68,68,0.12)",
     color: "#f87171", // red
   },

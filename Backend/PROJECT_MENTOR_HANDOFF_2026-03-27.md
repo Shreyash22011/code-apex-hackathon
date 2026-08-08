@@ -1,7 +1,7 @@
 # SchemaSense AI - Mentor Handoff (Mar 27, 2026)
 
 ## 1) Executive Summary
-SchemaSense AI is a hackathon project (VIT Code Apex 2.0, Track 2 - AI Agents, Problem 2.1 Data Dictionary Agent) that ingests tabular data, builds schema intelligence, profiles quality, and supports NL-to-SQL querying through a local LLM (phi3:mini on Ollama).
+SchemaSense AI is a hackathon project (VIT Code Apex 2.0, Track 2 - AI Agents, Problem 2.1 Data Dictionary Agent) that ingests tabular data, builds schema intelligence, profiles quality, and supports NL-to-SQL querying through a local LLM (qwen3.5:4b on Ollama).
 
 This handoff summarizes:
 - Current architecture (backend + frontend)
@@ -24,8 +24,8 @@ This handoff summarizes:
 
 ### Constraints
 - Local-first AI stack
-- phi3:mini via Ollama
-- 4GB VRAM target hardware noted in SRS
+- qwen3.5:4b via Ollama (configurable via OLLAMA_MODEL)
+- Local-first stack suitable for modest GPU/RAM (4B-class models)
 - Backend exposed through ngrok for frontend integration
 
 ## 3) Current Repository Structure
@@ -95,7 +95,7 @@ Frontend current files (src):
 ### Core endpoints
 - GET / : backend status
 - GET /me : auth sanity check
-- GET /health/llm : Ollama/phi3 health
+- GET /health/llm : Ollama / configured model health
 
 ### Schema and graph endpoints
 - GET /schema
@@ -141,7 +141,7 @@ Frontend current files (src):
 
 1. Determine relevant tables from user query
 2. Build schema context with sample values
-3. Prompt phi3:mini to generate SQL
+3. Prompt qwen3.5:4b to generate SQL
 4. Cleanup model output (strip tokens/markdown)
 5. Validate/execute read-only via sql_runner
 6. Self-heal on SQL error via prompt_fix_sql

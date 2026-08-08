@@ -10,7 +10,7 @@ function AnimatedNumber({ value, prefix = "", suffix = "" }) {
     if (!isInView) return;
     let start = 0;
     const end = parseInt(value.replace(/,/g, ''), 10);
-    // If it's a string that doesn't parse to an int (like "Zero" or "phi3:mini"), logic differs.
+    // If it's a string that doesn't parse to an int (like "Zero" or "qwen3.5:4b"), logic differs.
     if (isNaN(end)) return;
 
     const duration = 1500;
@@ -84,7 +84,7 @@ export default function StatsBar() {
           </div>
 
           <div className="flex flex-col items-center py-2 md:py-0 text-center">
-            <AnimatedNumber value="phi3:mini" />
+            <AnimatedNumber value="qwen3.5:4b" />
             <span className="text-xs text-slate-500 mt-1">3.8B params on 4GB VRAM</span>
           </div>
 

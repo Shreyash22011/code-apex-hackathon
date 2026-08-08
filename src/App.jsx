@@ -3,6 +3,8 @@ import { SignedIn, SignedOut, UserButton, useAuth } from "@clerk/clerk-react"
 import { Routes, Route, Navigate, NavLink, useNavigate } from "react-router-dom"
 import { setTokenGetter } from "./api/api"
 
+const HAS_CLERK = Boolean(import.meta.env.VITE_CLERK_PUBLISHABLE_KEY)
+
 import UploadScreen from "./screens/UploadScreen"
 import DictionaryScreen from "./screens/DictionaryScreen"
 import QualityScreen from "./screens/QualityScreen"
@@ -113,15 +115,21 @@ function MainLayout({ children }) {
             </span>
           </div>
 
-          <div className="mb-1 rounded-[var(--radius-md)] border border-[var(--border-default)] bg-[var(--bg-elevated)] p-1">
-            <UserButton
-              appearance={{
-                elements: {
-                  avatarBox: "h-7 w-7 rounded-[8px]",
-                },
-              }}
-            />
-          </div>
+          {HAS_CLERK ? (
+            <div className="mb-1 rounded-[var(--radius-md)] border border-[var(--border-default)] bg-[var(--bg-elevated)] p-1">
+              <UserButton
+                appearance={{
+                  elements: {
+                    avatarBox: "h-7 w-7 rounded-[8px]",
+                  },
+                }}
+              />
+            </div>
+          ) : (
+            <div className="mb-1 grid h-9 w-9 place-items-center rounded-[var(--radius-md)] border border-[var(--border-default)] bg-[var(--bg-elevated)] text-[10px] text-[var(--text-muted)]">
+              DEV
+            </div>
+          )}
         </div>
       </aside>
 
@@ -134,6 +142,10 @@ function MainLayout({ children }) {
 }
 
 function ProtectedRoute({ children }) {
+  if (!HAS_CLERK) {
+    return <MainLayout>{children}</MainLayout>
+  }
+
   return (
     <>
       <SignedIn>
@@ -148,14 +160,8 @@ function ProtectedRoute({ children }) {
   )
 }
 
-export default function App() {
-  const { getToken } = useAuth()
+function AppRoutes() {
   const navigate = useNavigate()
-
-  useEffect(() => {
-    // Pass the Clerk token getter to our Axios instance
-    setTokenGetter(getToken)
-  }, [getToken])
 
   return (
     <Routes>
@@ -178,4 +184,22 @@ export default function App() {
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   )
+}
+
+function AppWithClerk() {
+  const { getToken } = useAuth()
+
+  useEffect(() => {
+    setTokenGetter(getToken)
+  }, [getToken])
+
+  return <AppRoutes />
+}
+
+export default function App() {
+  if (!HAS_CLERK) {
+    return <AppRoutes />
+  }
+
+  return <AppWithClerk />
 }

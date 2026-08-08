@@ -286,10 +286,11 @@ def handle_nl_to_sql(payload: ChatRequest):
                     "reason": "sql_execution_error"
                 }
         
-        # Generate explanation with actual row count for accuracy
-        explain_prompt = llm.prompt_explain_sql(sql, query_text, row_count)
-        explanation = llm.ask_llm(explain_prompt, task="explain").strip()
+        # The grounded result interpretation is the user-facing explanation.
+        # Previously this made an extra, overlapping model call before making the
+        # interpretation call, adding a full generation to every chat request.
         natural_answer = _generate_natural_answer(query_text, sql, columns, results, row_count)
+        explanation = natural_answer
         
         return {
             "sql": sql,
@@ -373,7 +374,7 @@ def query_stream(payload: ChatRequest):
                     "answer": answer.strip(),
                     "diagnostics": {
                         "generated_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-                        "model": "phi3:mini",
+                        "model": llm.MODEL_NAME,
                         "latency_ms": latency_ms
                     }
                 }
@@ -537,7 +538,7 @@ def column_chat(payload: ColumnChatRequest):
             },
             "diagnostics": {
                 "generated_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-                "model": "phi3:mini",
+                "model": llm.MODEL_NAME,
                 "latency_ms": latency_ms
             }
         }
@@ -548,7 +549,7 @@ def column_chat(payload: ColumnChatRequest):
 
 @app.get("/health/llm")
 def llm_health():
-    """Health status for local Ollama and phi3 availability."""
+    """Health status for local Ollama and configured model availability."""
     return llm.health_check()
 
 @app.get("/quality/{table_name}")

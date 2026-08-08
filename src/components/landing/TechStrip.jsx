@@ -2,7 +2,7 @@ import React from "react";
 import { Cpu, Server, Zap, Code, Database, Layers, Box, Globe } from "lucide-react";
 
 const stack = [
-  { name: "phi3:mini", icon: Cpu },
+  { name: "qwen3.5:4b", icon: Cpu },
   { name: "Ollama", icon: Server },
   { name: "FastAPI", icon: Zap },
   { name: "React 18", icon: Code },

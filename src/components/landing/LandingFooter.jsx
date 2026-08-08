@@ -30,7 +30,7 @@ export default function LandingFooter() {
           <div className="flex gap-16">
             <div className="flex flex-col gap-3">
               <h4 className="text-white font-semibold text-sm mb-1">Built With</h4>
-              <span className="text-sm text-slate-400 font-mono">phi3:mini · Ollama</span>
+              <span className="text-sm text-slate-400 font-mono">qwen3.5:4b · Ollama</span>
               <span className="text-sm text-slate-400 font-mono">FastAPI · SQLite</span>
               <span className="text-sm text-slate-400 font-mono">React · Three.js</span>
             </div>
